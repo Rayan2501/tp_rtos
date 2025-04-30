@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include <stdio.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -52,7 +53,12 @@ const osThreadAttr_t defaultTask_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
+#include "semphr.h"  // très important pour les sémaphores
 
+SemaphoreHandle_t mySem;
+TaskHandle_t taskGiveHandle;
+TaskHandle_t taskTakeHandle;
+TickType_t giveDelay = 100; // Initialement 100ms
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -61,12 +67,46 @@ static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
 void StartDefaultTask(void *argument);
 
+
+
 /* USER CODE BEGIN PFP */
+void TaskGive(void *argument);
+void TaskTake(void *argument);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void TaskGive(void *argument)
+{
+  for (;;)
+  {
+    printf("TaskGive: Avant give (delay = %lu ms)\r\n", giveDelay);
+    xSemaphoreGive(mySem);
+    printf("TaskGive: Après give\r\n");
+
+    vTaskDelay(pdMS_TO_TICKS(giveDelay));
+    giveDelay += 100; // Augmente de 100ms à chaque itération
+  }
+}
+
+void TaskTake(void *argument)
+{
+  for (;;)
+  {
+    printf("TaskTake: Avant take\r\n");
+
+    if (xSemaphoreTake(mySem, pdMS_TO_TICKS(1000)) == pdTRUE)
+    {
+      printf("TaskTake: Sémaphore pris\r\n");
+    }
+    else
+    {
+      printf("TaskTake: Timeout → reset\r\n");
+      NVIC_SystemReset(); // Reset logiciel
+    }
+  }
+}
 
 void LedTask(void *argument)
 {
@@ -110,10 +150,12 @@ int main(void)
   MX_GPIO_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  xTaskCreate(LedTask, "LedTask", 128, NULL, 1, NULL);
-  vTaskStartScheduler();
+   mySem = xSemaphoreCreateBinary();
+   configASSERT(mySem != NULL);
 
-  /* USER CODE END 2 */
+   xTaskCreate(TaskGive, "Give", 128, NULL, 2, &taskGiveHandle);
+   xTaskCreate(TaskTake, "Take", 128, NULL, 3, &taskTakeHandle);
+   /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();
@@ -191,6 +233,9 @@ void SystemClock_Config(void)
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
+
+    SemaphoreHandle_t mySem;
+
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
